@@ -11,3 +11,9 @@ wheels/
 
 # Datasets (no versionar datos voluminosos)
 data/
+mlruns/
+.mlflow/
+mlflow.db
+
+# cache
+.ipynb_checkpoints/

@@ -12,7 +12,10 @@ constantes para que todo el mundo parta de la misma base reproducible.
 - **PlantDoc**: fuente verificada, licencia `CC-BY-4.0`, pendiente de descarga por el equipo.
 
 ## Imágenes
-- Tamaño objetivo: `224x224`, RGB, rescale `1/255`. Coincide con el input esperado por MobileNetV2 y EfficientNetB0.
+- Tamaño objetivo: `224x224`, RGB. El reescalado depende de la arquitectura:
+  MobileNetV2 puede requerir su preprocesamiento propio y EfficientNetB0
+  baseline recibe valores `0–255`, ya que usa `include_preprocessing=True`.
+  No se debe encadenar `1/255` para EfficientNetB0.
 
 ## Entrenamiento (referencia, aún sin implementar)
 - Batch 32, 50 épocas, lr 0.001, optimizador Adam, pérdida `categorical_crossentropy`, métrica accuracy, early stopping paciencia 5.
