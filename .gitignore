@@ -11,5 +11,3 @@ wheels/
 
 # Datasets (no versionar datos voluminosos)
 data/
-
-mlflow.db
