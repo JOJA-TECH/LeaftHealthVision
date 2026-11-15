@@ -1,7 +1,7 @@
 """Carga y prepara los datasets de PlantVillage para entrenamiento, validación y prueba."""
 
 import tensorflow as tf
-from config.settings import BATCH_SIZE, IMAGE_TARGET_SIZE, PLANTVILLAGE, ROOT, SEED
+from leafthealthvision.config.settings import BATCH_SIZE, IMAGE_TARGET_SIZE, PLANTVILLAGE, ROOT, SEED
 
 AUTOTUNE = tf.data.AUTOTUNE
 
@@ -22,8 +22,12 @@ def load_datasets():
         batch_size=BATCH_SIZE,
         seed=SEED,
     )
-    full_dataset = full_dataset.cache().shuffle(
-        buffer_size=1000, seed=SEED, reshuffle_each_iteration=False
+    class_names = full_dataset.class_names
+    # cache() carga todo el dataset en RAM (~100 GB descomprimido para 163k
+    # imágenes) y agota la memoria con GPU integrada; se lee desde disco en su
+    # lugar. El buffer de shuffle se reduce a batches que quepan en memoria.
+    full_dataset = full_dataset.shuffle(
+        buffer_size=32, seed=SEED, reshuffle_each_iteration=False
     )
 
     n_batches = int(full_dataset.cardinality().numpy())
@@ -39,4 +43,4 @@ def load_datasets():
     validation_dataset = validation_dataset.prefetch(buffer_size=AUTOTUNE)
     test_dataset = test_dataset.prefetch(buffer_size=AUTOTUNE)
 
-    return (train_dataset, validation_dataset, test_dataset)
+    return (train_dataset, validation_dataset, test_dataset, class_names)
