@@ -11,6 +11,8 @@ wheels/
 
 # Datasets (no versionar datos voluminosos)
 data/
+
+.config
 mlruns/
 .mlflow/
 mlflow.db

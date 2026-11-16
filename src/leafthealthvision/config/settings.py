@@ -68,9 +68,9 @@ REDUCE_LR_FACTOR = 0.5
 # ---------------------------------------------------------------------------
 # MLflow (seguimiento local de experimentos)
 # ---------------------------------------------------------------------------
-MLFLOW_TRACKING_URI = "file://./mlruns"
+MLFLOW_TRACKING_URI = "sqlite:///mlflow.db"
 MLFLOW_EXPERIMENT_NAME = "leafthealthvision"
-MLFLOW_ARTIFACT_LOCATION = None
+MLFLOW_ARTIFACT_LOCATION = str(ROOT / "mlruns")
 
 # ---------------------------------------------------------------------------
 # Modelos candidatos (etapa futura)
