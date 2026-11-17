@@ -2,7 +2,9 @@ import json
 import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # suprime avisos informativos de TensorFlow (oneDNN, absl)
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # forzar CPU (sin depender de GPU/cuDNN)
 
+import numpy as np
 import platform
 import subprocess
 import time
@@ -205,3 +207,26 @@ with mlflow.start_run(run_name="efficientnetb0_baseline"):
     )
     mlflow.log_artifacts(str(experiments_dir), artifact_path="experiment")
     print(f"MLflow run guardado en: {mlflow.get_tracking_uri()}")
+
+# --- Guardar modelo entrenado, clases y evaluación en test ---
+model_path = experiments_dir / "model.keras"
+model.save(model_path)
+
+test_metrics = model.evaluate(test_ds, return_dict=True)
+print("Métricas de test:", test_metrics)
+
+np.save(experiments_dir / "class_names.npy", np.array(class_names))
+
+evidence.update({
+    "test_metrics": test_metrics,
+    "model_path": str(model_path),
+    "class_names_path": str(experiments_dir / "class_names.npy"),
+})
+evidence_path.write_text(json.dumps(evidence, indent=2), encoding="utf-8")
+
+mlflow.log_metrics({f"test_{k}": float(v) for k, v in test_metrics.items()})
+mlflow.log_artifacts(str(experiments_dir), artifact_path="experiment")
+
+print(f"Modelo guardado en: {model_path}")
+print(f"Clases guardadas en: {experiments_dir / 'class_names.npy'}")
+print("Entrenamiento completo.")
