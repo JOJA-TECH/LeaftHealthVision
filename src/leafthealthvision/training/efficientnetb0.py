@@ -1,32 +1,39 @@
+"""Entrenamiento reproducible del baseline congelado de EfficientNetB0 para PlantVillage color.
+
+Uso: ``python -m leafthealthvision.training.efficientnetb0 --config configs/efficientnetb0_baseline.yaml``
+"""
+
+from __future__ import annotations
+
+import argparse
 import json
 import os
-
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # suprime avisos informativos de TensorFlow (oneDNN, absl)
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # forzar CPU (sin depender de GPU/cuDNN)
-
-import numpy as np
 import platform
+import shutil
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-import tensorflow as tf
-
 import mlflow
+import tensorflow as tf
 from codecarbon import EmissionsTracker
 
-from tensorflow import keras
-from tensorflow.keras import layers, models, applications
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input
-
-from leafthealthvision.data import load_datasets
-from leafthealthvision.config.settings import EARLY_STOPPING_PATIENCE, IMAGE_TARGET_SIZE, OPTIMIZER, METRICS
+from leafthealthvision.models.efficientnet_b0 import build_efficientnetb0_baseline
+from leafthealthvision.plantvillage import class_weights
+from leafthealthvision.training.common import (
+    build_datasets,
+    evaluate_and_save,
+    git_commit,
+    load_config,
+    optional_fit_kwargs,
+    project_root,
+    save_unresolved,
+    set_seed,
+    stop_emissions,
+    training_callbacks,
+)
+from leafthealthvision.tracking.mlflow_tracking import configure_mlflow, log_directory
 
 
 def _system_specs() -> dict:
@@ -38,15 +45,11 @@ def _system_specs() -> dict:
         "tensorflow": tf.__version__,
         "cpu_logical_cores": os.cpu_count(),
         "cpu_name": platform.processor() or "desconocido",
-        "gpus_visible_to_tf": [d.name for d in tf.config.list_physical_devices("GPU")],
+        "gpus_visible_to_tf": [device.name for device in tf.config.list_physical_devices("GPU")],
     }
     try:
         out = subprocess.check_output(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total,driver_version",
-                "--format=csv,noheader",
-            ],
+            ["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader"],
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
@@ -56,177 +59,126 @@ def _system_specs() -> dict:
     return specs
 
 
-train_ds, validation_ds, test_ds, class_names = load_datasets()
+def run(config_path: Path) -> Path:
+    root = project_root()
+    config = load_config(config_path)
+    training = config["training"]
+    seed = int(training["seed"])
+    set_seed(seed)
 
-img_height, img_width = IMAGE_TARGET_SIZE
-num_classes = len(class_names)
+    splits, datasets, class_names = build_datasets(config, seed)
+    image_size = tuple(config["model"]["image_size"])
 
-# --- Transfer learning: base pre-entrenado EfficientNetB0 ---
-base_model = applications.EfficientNetB0(
-    input_shape=(img_height, img_width, 3),
-    include_top=False,
-    weights='imagenet',
-)
-
-# Congelar la base: solo se entrena la cabeza nueva
-base_model.trainable = False
-
-inputs = Input(shape=(img_height, img_width, 3))
-# A diferencia de MobileNetV2, EfficientNetB0 ya normaliza internamente:
-# no se añade layers.Rescaling(IMAGE_RESCALE).
-x = base_model(inputs, training=False)
-x = layers.GlobalAveragePooling2D()(x)
-outputs = layers.Dense(num_classes)(x)
-model = Model(inputs, outputs)
-
-model.compile(optimizer=OPTIMIZER,
-              loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-              metrics=METRICS)
-
-model.summary()
-
-
-epochs = int(os.environ.get("EFFICIENTNETB0_EPOCHS", "10"))
-steps_per_epoch = os.environ.get("EFFICIENTNETB0_STEPS_PER_EPOCH")
-validation_steps = os.environ.get("EFFICIENTNETB0_VALIDATION_STEPS")
-
-early_stop = tf.keras.callbacks.EarlyStopping(
-    patience=EARLY_STOPPING_PATIENCE, restore_best_weights=True
-)
-
-specs = _system_specs()
-print("=== Especificaciones del equipo (evidencia) ===")
-for key, value in specs.items():
-    print(f"{key}: {value}")
-
-tracker = EmissionsTracker(
-    project_name="leafthealthvision-efficientnetb0",
-    output_dir=".",
-    gpu_ids=[],  # la MX330 en WDDM no expone power/utilization vía NVML
-)
-tracker.start()
-t0 = time.perf_counter()
-
-fit_kwargs = dict(
-    x=train_ds,
-    validation_data=validation_ds,
-    epochs=epochs,
-    callbacks=[early_stop],
-)
-if steps_per_epoch:
-    fit_kwargs["steps_per_epoch"] = int(steps_per_epoch)
-if validation_steps:
-    fit_kwargs["validation_steps"] = int(validation_steps)
-
-history = model.fit(**fit_kwargs)
-
-elapsed_seconds = time.perf_counter() - t0
-emissions_kg_co2 = tracker.stop()
-
-print("=== Evidencia de consumo e huella de carbono ===")
-print(f"tiempo_entrenamiento_segundos: {elapsed_seconds:.2f}")
-print(f"emisiones_co2_kg: {emissions_kg_co2:.6f}")
-print(f"epocas_ejecutadas: {epochs}")
-print(f"clases: {num_classes}")
-
-experiments_dir = Path(__file__).resolve().parents[1] / "experiments" / time.strftime("%Y%m%d_%H%M%S")
-experiments_dir.mkdir(parents=True, exist_ok=True)
-
-evidence = {
-    "system_specs": specs,
-    "tiempo_entrenamiento_segundos": round(elapsed_seconds, 2),
-    "emisiones_co2_kg": round(emissions_kg_co2, 6),
-    "epocas": epochs,
-    "clases": num_classes,
-    "architecture": "EfficientNetB0",
-    "extractor_frozen": True,
-}
-evidence_path = experiments_dir / "evidence_run.json"
-evidence_path.write_text(json.dumps(evidence, indent=2), encoding="utf-8")
-
-acc = history.history['accuracy']
-val_acc = history.history['val_accuracy']
-
-loss = history.history['loss']
-val_loss = history.history['val_loss']
-
-epochs_range = range(len(acc))
-
-plt.figure(figsize=(8, 8))
-plt.subplot(1, 2, 1)
-plt.plot(epochs_range, acc, label='Training Accuracy')
-plt.plot(epochs_range, val_acc, label='Validation Accuracy')
-plt.legend(loc='lower right')
-plt.title('Training and Validation Accuracy')
-
-plt.subplot(1, 2, 2)
-plt.plot(epochs_range, loss, label='Training Loss')
-plt.plot(epochs_range, val_loss, label='Validation Loss')
-plt.legend(loc='upper right')
-plt.title('Training and Validation Loss')
-plot_path = experiments_dir / "training_history.png"
-plt.savefig(plot_path, dpi=150)
-print(f"Grafico guardado en: {plot_path}")
-print(f"Evidencia guardada en: {evidence_path}")
-
-# --- MLflow: dejar evidencia de la corrida ---
-mlflow.set_tracking_uri("file://./mlruns")
-mlflow.set_experiment("leafthealthvision-efficientnetb0")
-
-with mlflow.start_run(run_name="efficientnetb0_baseline"):
-    mlflow.log_params(
-        {
-            "architecture": "EfficientNetB0",
-            "weights": "imagenet",
-            "include_preprocessing": True,
-            "extractor_frozen": True,
-            "variant": "color",
-            "resolution": f"{IMAGE_TARGET_SIZE[0]}x{IMAGE_TARGET_SIZE[1]}",
-            "channels": "RGB",
-            "optimizer": OPTIMIZER,
-            "loss": "SparseCategoricalCrossentropy(from_logits=True)",
-            "metrics": METRICS,
-            "seed": 42,
-            "num_classes": num_classes,
-            "epochs": epochs,
-            "early_stopping_patience": EARLY_STOPPING_PATIENCE,
-            "augmentation": "ninguna (solo cabeza entrenable)",
-        }
+    model = build_efficientnetb0_baseline(
+        num_classes=len(class_names),
+        input_shape=(*image_size, 3),
+        dropout_rate=float(config["model"]["dropout_rate"]),
     )
-    mlflow.log_metrics(
-        {
-            "tiempo_entrenamiento_segundos": round(elapsed_seconds, 2),
-            "emisiones_co2_kg": round(emissions_kg_co2, 6),
-            "epocas_ejecutadas": float(epochs),
-            "clases": float(num_classes),
-            "train_accuracy_final": float(acc[-1]) if acc else None,
-            "val_accuracy_final": float(val_acc[-1]) if val_acc else None,
-            "train_loss_final": float(loss[-1]) if loss else None,
-            "val_loss_final": float(val_loss[-1]) if val_loss else None,
-        }
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=float(training["learning_rate"])),
+        loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+        metrics=[tf.keras.metrics.SparseCategoricalAccuracy(name="accuracy")],
     )
-    mlflow.log_artifacts(str(experiments_dir), artifact_path="experiment")
-    print(f"MLflow run guardado en: {mlflow.get_tracking_uri()}")
 
-# --- Guardar modelo entrenado, clases y evaluación en test ---
-model_path = experiments_dir / "model.keras"
-model.save(model_path)
+    output_dir = root / "experiments" / "efficientnetb0" / "baseline" / f"seed_{seed}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(config_path, output_dir / "config.yaml")
+    unresolved = save_unresolved(output_dir, splits)
+    callbacks = training_callbacks(output_dir, int(training["early_stopping_patience"]))
 
-test_metrics = model.evaluate(test_ds, return_dict=True)
-print("Métricas de test:", test_metrics)
+    tracking = config["mlflow"]
+    configure_mlflow(tracking["tracking_uri"], tracking["experiment_name"])
+    weights = class_weights(splits["train"].labels, len(class_names))
 
-np.save(experiments_dir / "class_names.npy", np.array(class_names))
+    # La MX330 en WDDM no expone power/utilization vía NVML; se mide solo CPU.
+    tracker = EmissionsTracker(
+        project_name="leafthealthvision-efficientnetb0-baseline",
+        output_dir=str(output_dir),
+        gpu_ids=[],
+    )
+    tracker.start()
+    t0 = time.perf_counter()
+    emissions_kg_co2 = None
+    try:
+        with mlflow.start_run(run_name="efficientnetb0_baseline") as active_run:
+            params = {
+                "architecture": "EfficientNetB0",
+                "weights": "imagenet",
+                "include_preprocessing": True,
+                "extractor_frozen": True,
+                "variant": "color",
+                "resolution": f"{image_size[0]}x{image_size[1]}",
+                "channels": "RGB",
+                "batch_size": int(training["batch_size"]),
+                "max_epochs": int(training["epochs"]),
+                "learning_rate": float(training["learning_rate"]),
+                "optimizer": "Adam",
+                "loss": "SparseCategoricalCrossentropy",
+                "seed": seed,
+                "num_classes": len(class_names),
+                "augmentation": "horizontal_flip,rotation_0.05,zoom_0.10",
+                "split_manifests": str(Path(config["dataset"]["manifest_dir"])),
+                "dataset_source": config["dataset"]["source"],
+            }
+            params.update({key: int(value) for key, value in optional_fit_kwargs(config).items()})
+            mlflow.log_params(params)
 
-evidence.update({
-    "test_metrics": test_metrics,
-    "model_path": str(model_path),
-    "class_names_path": str(experiments_dir / "class_names.npy"),
-})
-evidence_path.write_text(json.dumps(evidence, indent=2), encoding="utf-8")
+            history = model.fit(
+                datasets["train"],
+                validation_data=datasets["val"],
+                epochs=int(training["epochs"]),
+                callbacks=callbacks,
+                class_weight=weights,
+                verbose=2,
+                **optional_fit_kwargs(config),
+            )
+            elapsed_seconds = time.perf_counter() - t0
+            emissions_kg_co2 = stop_emissions(tracker)
+            epochs_run = len(history.history["loss"])
 
-mlflow.log_metrics({f"test_{k}": float(v) for k, v in test_metrics.items()})
-mlflow.log_artifacts(str(experiments_dir), artifact_path="experiment")
+            model.save(output_dir / "model.keras")
+            probabilities = model.predict(datasets["test"], verbose=1)
+            metrics = evaluate_and_save(output_dir, splits, probabilities, class_names)
 
-print(f"Modelo guardado en: {model_path}")
-print(f"Clases guardadas en: {experiments_dir / 'class_names.npy'}")
-print("Entrenamiento completo.")
+            mlflow.log_metrics(
+                {
+                    "tiempo_entrenamiento_segundos": round(elapsed_seconds, 2),
+                    "emisiones_co2_kg": emissions_kg_co2,
+                    "epocas_ejecutadas": float(epochs_run),
+                    **metrics,
+                }
+            )
+            metadata = {
+                "executed_at_utc": datetime.now(timezone.utc).isoformat(),
+                "seed": seed,
+                "mlflow_run_id": active_run.info.run_id,
+                "git_commit": git_commit(root),
+                "dataset_source": config["dataset"]["source"],
+                "dataset_variant": "color",
+                "manifest_dir": str(Path(config["dataset"]["manifest_dir"])),
+                "split_sizes": {name: len(records.paths) for name, records in splits.items()},
+                "unresolved_color_manifest_rows": unresolved,
+                "class_names": class_names,
+                "system_specs": _system_specs(),
+                "tiempo_entrenamiento_segundos": round(elapsed_seconds, 2),
+                "emisiones_co2_kg": emissions_kg_co2,
+                "epocas_ejecutadas": epochs_run,
+            }
+            (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+            log_directory(output_dir)
+    finally:
+        if emissions_kg_co2 is None:
+            stop_emissions(tracker)  # parada de emergencia si el entrenamiento falló
+    return output_dir
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, default=Path("configs/efficientnetb0_baseline.yaml"))
+    args = parser.parse_args()
+    destination = run(args.config.resolve())
+    print(f"Experimento guardado en {destination}")
+
+
+if __name__ == "__main__":
+    main()
