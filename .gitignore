@@ -9,8 +9,10 @@ wheels/
 # Virtual environments
 .venv
 
-# Datasets (no versionar datos voluminosos)
-data/
+# Datasets (no versionar datos voluminosos). Con data/* (no data/) sí se puede
+# re-incluir data/splits/: los manifiestos son la base de la reproducibilidad.
+data/*
+!data/splits/
 mlruns/
 .mlflow/
 mlflow.db

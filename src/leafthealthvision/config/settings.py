@@ -48,27 +48,25 @@ PLANTDOC = {
 # ---------------------------------------------------------------------------
 # Imágenes
 # ---------------------------------------------------------------------------
+# Nota: EfficientNetB0(include_preprocessing=True) espera float32 en [0, 255] y
+# normaliza internamente; no se aplica un Rescaling(1/255) externo.
 IMAGE_TARGET_SIZE = (224, 224)  # estándar para MobileNetV2 / EfficientNetB0
 IMAGE_COLOR_MODE = "rgb"
-IMAGE_RESCALE = 1.0 / 255.0
 
 # ---------------------------------------------------------------------------
-# Entrenamiento (valores de referencia, lógica aún no implementada)
+# Entrenamiento (valores de referencia del protocolo; los scripts usan configs/)
 # ---------------------------------------------------------------------------
 BATCH_SIZE = 32
 EPOCHS = 50
 LEARNING_RATE = 0.001
 OPTIMIZER = "adam"
-LOSS = "categorical_crossentropy"
 METRICS = ["accuracy"]
 EARLY_STOPPING_PATIENCE = 5
-REDUCE_LR_PATIENCE = 3
-REDUCE_LR_FACTOR = 0.5
 
 # ---------------------------------------------------------------------------
 # MLflow (seguimiento local de experimentos)
 # ---------------------------------------------------------------------------
-MLFLOW_TRACKING_URI = "file://./mlruns"
+MLFLOW_TRACKING_URI = "./mlruns"  # "file://./mlruns" se parsea como UNC \\.\mlruns en Windows
 MLFLOW_EXPERIMENT_NAME = "leafthealthvision"
 MLFLOW_ARTIFACT_LOCATION = None
 

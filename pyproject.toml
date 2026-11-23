@@ -15,7 +15,9 @@ dependencies = [
     "nbconvert>=7.17.2",
     "nbformat>=5.11.1",
     "notebook>=7.6.5",
+    "pillow==12.3.0",
     "pyyaml==6.0.3",
+    "scikit-learn==1.7.2",
     "tensorflow==2.21.0",
 ]
 
