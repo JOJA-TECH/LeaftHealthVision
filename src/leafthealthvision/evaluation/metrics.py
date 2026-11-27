@@ -8,18 +8,29 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.metrics import classification_report, confusion_matrix, precision_recall_fscore_support
+from sklearn.metrics import (
+    balanced_accuracy_score,
+    classification_report,
+    confusion_matrix,
+    precision_recall_fscore_support,
+)
 
 
 def evaluate_predictions(
     y_true: np.ndarray, y_probabilities: np.ndarray, class_names: list[str]
 ) -> tuple[dict[str, float], np.ndarray, dict]:
     """Calcula accuracy y promedios macro y weighted sin ocultar el desbalance."""
+    if len(y_true) != len(y_probabilities):
+        raise ValueError("y_true y y_probabilities deben tener el mismo número de filas")
+    if y_probabilities.ndim != 2 or y_probabilities.shape[1] != len(class_names):
+        raise ValueError("y_probabilities debe tener forma (n, n_clases)")
     y_pred = y_probabilities.argmax(axis=1)
     macro = precision_recall_fscore_support(y_true, y_pred, average="macro", zero_division=0)
     weighted = precision_recall_fscore_support(y_true, y_pred, average="weighted", zero_division=0)
     metrics = {
         "accuracy": float(np.mean(y_true == y_pred)),
+        "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
+        "n_test": int(len(y_true)),
         "precision_macro": float(macro[0]),
         "recall_macro": float(macro[1]),
         "f1_macro": float(macro[2]),
