@@ -13,9 +13,7 @@ wheels/
 # re-incluir data/splits/: los manifiestos son la base de la reproducibilidad.
 data/*
 !data/splits/
-mlruns/
-.mlflow/
-mlflow.db
+!data/colab_results/
 
 # cache
 .ipynb_checkpoints/
