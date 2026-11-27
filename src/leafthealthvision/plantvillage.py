@@ -8,10 +8,12 @@ imagen, sin volver a dividir el dataset.
 from __future__ import annotations
 
 import csv
+import hashlib
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 
 
@@ -40,6 +42,93 @@ def image_core_name(filename: str) -> str:
     """Nombre sin UUID, usado solo como alternativa cuando color no lo tiene."""
     normalized = normalized_image_name(filename)
     return normalized.split("___", 1)[-1]
+
+
+def sha256_file(path: Path, chunk: int = 1024 * 1024) -> str:
+    """SHA-256 de un archivo, en bloques para no cargar imágenes completas."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(chunk), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def manifest_hashes(manifest_dir: Path) -> dict[str, str]:
+    """Hashes de los tres manifiestos; se guardan junto a cada experimento."""
+    return {
+        name: sha256_file(manifest_dir / f"{name}.csv")
+        for name in ("train", "val", "test")
+    }
+
+
+def _manifest_rows(manifest_path: Path) -> list[dict[str, str]]:
+    with manifest_path.open(encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def audit_manifests(manifest_dir: Path) -> dict:
+    """Audita conteos, clases, duplicados y fuga por hoja sin modificar los CSV."""
+    rows_by_split = {
+        name: _manifest_rows(manifest_dir / f"{name}.csv")
+        for name in ("train", "val", "test")
+    }
+    all_rows = [(name, row) for name, rows in rows_by_split.items() for row in rows]
+    classes_by_split = {
+        name: sorted({row["categoria"] for row in rows})
+        for name, rows in rows_by_split.items()
+    }
+    class_sets = [set(classes) for classes in classes_by_split.values()]
+    leaf_to_splits: dict[str, set[str]] = defaultdict(set)
+    for name, row in all_rows:
+        if row.get("hoja"):
+            leaf_to_splits[row["hoja"]].add(name)
+    duplicate_keys = Counter((row["categoria"], row["archivo"]) for _, row in all_rows)
+    split_field_mismatches = sum(row.get("split") != name for name, row in all_rows)
+    has_leaf_column = any("hoja" in row for _, row in all_rows)
+    total_rows = len(all_rows)
+    return {
+        "manifest_dir": str(manifest_dir),
+        "sha256": manifest_hashes(manifest_dir),
+        "counts": {name: len(rows) for name, rows in rows_by_split.items()},
+        "total_rows": total_rows,
+        "columns": sorted({key for _, row in all_rows for key in row}),
+        "classes_by_split": classes_by_split,
+        "same_classes": all(classes == class_sets[0] for classes in class_sets[1:]),
+        "class_counts": {
+            name: dict(sorted(Counter(row["categoria"] for row in rows).items()))
+            for name, rows in rows_by_split.items()
+        },
+        "origin_counts": {
+            name: dict(sorted(Counter(row.get("origen", "") for row in rows).items()))
+            for name, rows in rows_by_split.items()
+        },
+        "leaf_check_available": has_leaf_column,
+        "leaf_groups_total": len(leaf_to_splits),
+        "leaf_groups_shared_across_splits": sum(1 for splits in leaf_to_splits.values() if len(splits) > 1),
+        "rows_without_leaf": sum(1 for _, row in all_rows if not row.get("hoja")),
+        "duplicate_manifest_rows": sum(1 for count in duplicate_keys.values() if count > 1),
+        "split_field_mismatches": split_field_mismatches,
+    }
+
+
+def validate_manifest_splits(manifest_dir: Path) -> dict:
+    """Falla antes de entrenar si hay fuga, duplicados o clases inconsistentes."""
+    audit = audit_manifests(manifest_dir)
+    if not audit["same_classes"]:
+        raise ValueError(f"Los manifiestos no comparten el mismo espacio de clases: {manifest_dir}")
+    if audit["duplicate_manifest_rows"]:
+        raise ValueError(
+            f"Hay {audit['duplicate_manifest_rows']} filas (categoria, archivo) repetidas en {manifest_dir}"
+        )
+    if audit["split_field_mismatches"]:
+        raise ValueError(
+            f"Hay {audit['split_field_mismatches']} filas cuyo campo split no coincide con el archivo"
+        )
+    if audit["leaf_check_available"] and audit["leaf_groups_shared_across_splits"]:
+        raise ValueError(
+            f"Hay {audit['leaf_groups_shared_across_splits']} hojas compartidas entre splits en {manifest_dir}"
+        )
+    return audit
 
 
 def _color_index(color_dir: Path) -> tuple[dict[tuple[str, str], Path], dict[tuple[str, str], list[Path]]]:
