@@ -1,2 +1,4 @@
 def main() -> None:
-    print("Hello from leafthealthvision!")
+    from leafthealthvision.inference import main as run_inference
+
+    run_inference()
