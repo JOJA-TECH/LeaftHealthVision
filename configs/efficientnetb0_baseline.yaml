@@ -8,6 +8,8 @@ dataset:
 model:
   image_size: [224, 224]
   dropout_rate: 0.20
+  weights: imagenet  # null solo para pruebas sintéticas sin descarga
+# output_dir: null  # si se define, aísla corridas sintéticas de experiments/
 training:
   seed: 42
   batch_size: 32

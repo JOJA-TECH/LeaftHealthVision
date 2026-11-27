@@ -11,6 +11,8 @@ dataset:
 model:
   image_size: [224, 224]
   dropout_rate: 0.20
+  weights: null  # se cargan del checkpoint del baseline; evita descarga redundante
+# output_dir: null  # si se define, aísla corridas sintéticas de experiments/
 fine_tuning:
   init_from: experiments/efficientnetb0/baseline/seed_42/best_model.keras
   unfreeze_last_n: 20
