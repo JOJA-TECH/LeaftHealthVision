@@ -1,20 +1,34 @@
-"""Streamlit de despliegue: clasificación preliminar con MobileNetV2 en TFLite.
+"""Interfaz de evaluación comparativa desplegada con los modelos de Colab en TFLite.
 
-Resultado orientativo: no sustituye el diagnóstico de un especialista.
+Igual que `src/leafthealthvision/app.py`, pero sin TensorFlow: los tres artefactos
+de Colab se sirven como TFLite para caber en el runtime de contenedores de Vercel.
 """
 
+from __future__ import annotations
+
+import time
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import streamlit as st
 from ai_edge_litert.interpreter import Interpreter
 from PIL import Image
 
-MODEL_PATH = Path(__file__).with_name("model.tflite")
+from comparison import (
+    METRIC_LABELS,
+    RunReport,
+    comparability_notes,
+    discover_runs,
+    estimate_cost,
+)
+
+ROOT = Path(__file__).resolve().parent
+MODELS_DIR = Path(__file__).resolve().parent / "models"
 IMAGE_SIZE = (224, 224)
 UMBRAL_DEFECTO = 0.5
+TARIFA_COP_DEFECTO = 1035.0  # COP/kWh, punto medio del rango de referencia 870–1200
 
-# Orden alfabético de las 38 clases del manifiesto canónico (data/splits/train.csv).
 PLANTVILLAGE_CLASSES = [
     "Apple___Apple_scab", "Apple___Black_rot", "Apple___Cedar_apple_rust",
     "Apple___healthy", "Blueberry___healthy",
@@ -35,105 +49,350 @@ PLANTVILLAGE_CLASSES = [
     "Tomato___healthy",
 ]
 
+DEFINICIONES = [
+    ("Exactitud", "Proporción de predicciones correctas sobre el conjunto de prueba."),
+    ("Exactitud equilibrada", "Media de la recuperación por clase; evita el sesgo de clases mayoritarias."),
+    ("Precisión y recuperación macro", "Media no ponderada de la precisión y la recuperación de las 38 clases."),
+    ("F1 macro", "Media no ponderada de la media armónica entre precisión y recuperación por clase."),
+    ("F1 ponderado", "Media de F1 por clase ponderada por el número de muestras de cada clase."),
+    ("kg CO₂eq", "Emisiones de gases de efecto invernadero estimadas por CodeCarbon, expresadas en dióxido de carbono equivalente."),
+    ("kWh", "Energía eléctrica estimada por CodeCarbon para el proceso de entrenamiento."),
+]
+
 
 def _cultivo_de_clase(clase: str) -> str:
-    """Devuelve el cultivo asociado a una etiqueta PlantVillage (antes de '___')."""
+    """Devuelve el cultivo asociado a una etiqueta PlantVillage."""
     return clase.split("___", 1)[0] if "___" in clase else clase
 
 
-@st.cache_resource
-def cargar_modelo() -> Interpreter:
-    interpreter = Interpreter(model_path=str(MODEL_PATH))
+def _fmt(value, key: str | None = None, signed: bool = False) -> str:
+    if value is None or (isinstance(value, float) and not np.isfinite(value)):
+        return "N/D"
+    if key == "n_test":
+        return f"{int(value):,}"
+    if isinstance(value, int):
+        return str(value)
+    return f"{value:+.4f}" if signed else f"{value:.4f}"
+
+
+def _fmt_cop(value) -> str:
+    return "N/D" if value is None else f"${value:,.4f} COP"
+
+
+def _default_index(runs: list[RunReport], *needles: str) -> int:
+    for index, run in enumerate(runs):
+        if all(needle.lower() in run.name.lower() for needle in needles):
+            return index
+    return 0
+
+
+def _clases_de(run: RunReport, num_classes: int) -> list[str]:
+    names = run.class_names if len(run.class_names) == num_classes else PLANTVILLAGE_CLASSES
+    return names if len(names) == num_classes else [str(i) for i in range(num_classes)]
+
+
+@st.cache_resource(show_spinner="Cargando artefacto del modelo…")
+def _load_model(model_path: str) -> Interpreter:
+    """Cada checkpoint de Colab tiene su gemelo TFLite; la ruta .keras se conserva como procedencia."""
+    nombre = Path(model_path).name.lower()
+    if "finetun" in nombre:
+        archivo = "efficientnet_finetune.tflite"
+    elif "mobilenet" in str(model_path).lower():
+        archivo = "mobilenet_baseline.tflite"
+    else:
+        archivo = "efficientnet_baseline.tflite"
+    interpreter = Interpreter(model_path=str(MODELS_DIR / archivo))
     interpreter.allocate_tensors()
     return interpreter
 
 
-def probabilidades(interpreter: Interpreter, image: Image.Image) -> np.ndarray:
+def _probabilities(interpreter: Interpreter, batch: np.ndarray) -> np.ndarray:
+    """Los tres TFLite de Colab incluyen la cabeza softmax."""
     entrada = interpreter.get_input_details()[0]
-    # El TFLite ya incluye el preprocesamiento MobileNetV2 ([0,255] -> [-1,1]).
-    lote = np.expand_dims(np.asarray(image, dtype=entrada["dtype"]), 0)
-    interpreter.set_tensor(entrada["index"], lote)
+    interpreter.set_tensor(entrada["index"], np.asarray(batch, dtype=entrada["dtype"]))
     interpreter.invoke()
     salida = interpreter.get_output_details()[0]
     return interpreter.get_tensor(salida["index"])[0]
 
 
-def main() -> None:
-    st.set_page_config(
-        page_title="LeaftHealthVision — Clasificación de hojas", page_icon="🌿"
-    )
-    st.title("LeaftHealthVision — Clasificación de enfermedades de hojas")
-    st.caption(
-        "Prototipo educativo y experimental. Resultado orientativo, "
-        "no es un diagnóstico agrícola."
-    )
-
-    st.sidebar.header("Modelo")
-    st.sidebar.caption("MobileNetV2 (PlantVillage, TFLite).")
-    umbral = st.sidebar.number_input(
-        "Umbral de baja confianza",
-        min_value=0.0,
-        max_value=1.0,
-        value=UMBRAL_DEFECTO,
-        step=0.05,
-        help="Por debajo de este valor se avisa de baja confianza. "
-        "Defínelo con validación, nunca con el test.",
-    )
-    top_k = st.sidebar.slider("Clases más probables a mostrar", 1, 5, 3)
-
-    st.sidebar.markdown("---")
-    st.sidebar.warning(
-        "Advertencia: el resultado es orientativo y no constituye un diagnóstico "
-        "agrícola. No se recomiendan tratamientos ni acciones agronómicas a partir "
-        "de esta clasificación. PlantVillage tiene imágenes en condiciones "
-        "controladas; el desempeño puede disminuir en fotos reales."
-    )
-
-    archivo = st.file_uploader("Cargar imagen de una hoja", type=["jpg", "jpeg", "png"])
-    if not archivo:
-        st.info("Carga una imagen de hoja para obtener una clasificación preliminar.")
-        return
-
-    with st.spinner("Clasificando..."):
-        image = Image.open(archivo).convert("RGB").resize(
-            IMAGE_SIZE, Image.Resampling.BILINEAR
-        )
-        probs = probabilidades(cargar_modelo(), image)
-
-    top_idx = [int(i) for i in np.argsort(probs)[::-1][:top_k]]
-    clase_pred = PLANTVILLAGE_CLASSES[top_idx[0]]
-    confianza = float(probs[top_idx[0]])
-
-    st.subheader("Resultado")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Cultivo asociado", _cultivo_de_clase(clase_pred))
-        st.metric("Clase estimada", clase_pred)
-    with col2:
-        st.metric("Confianza", f"{confianza:.2%}")
-
-    if confianza < umbral:
-        st.warning(
-            f"Baja confianza ({confianza:.2%} < umbral {umbral:.2f}). "
-            "Resultado poco fiable; revisar con un especialista."
+def _tab_resultados(first: RunReport, second: RunReport, tarifa: float) -> None:
+    notas = comparability_notes(first, second)
+    if notas:
+        st.info(
+            "**Condición de comparabilidad.** " + " ".join(notas)
+            + " Los valores se transcripten de los artefactos originales y no constituyen un experimento controlado."
         )
     else:
-        st.success(f"Confianza {confianza:.2%} (umbral {umbral:.2f}).")
+        st.info("**Condición de comparabilidad.** No se detectaron diferencias de protocolo entre las corridas seleccionadas.")
 
-    st.markdown("### Clases más probables")
-    for idx in top_idx:
-        nombre = PLANTVILLAGE_CLASSES[idx]
-        st.write(
-            f"- **{nombre}**: {probs[idx]:.2%}  (cultivo: {_cultivo_de_clase(nombre)})"
+    st.header("1.1 Desempeño en el conjunto de prueba")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.metric(f"Exactitud · {first.model}", _fmt(first.metrics.get("accuracy")))
+        st.metric("F1 macro", _fmt(first.metrics.get("f1_macro")))
+    with col_b:
+        st.metric(f"Exactitud · {second.model}", _fmt(second.metrics.get("accuracy")))
+        st.metric("F1 macro", _fmt(second.metrics.get("f1_macro")))
+
+    filas = []
+    for clave, etiqueta in METRIC_LABELS.items():
+        valor_a = first.metrics.get(clave)
+        valor_b = second.metrics.get(clave)
+        delta = valor_b - valor_a if valor_a is not None and valor_b is not None and clave != "n_test" else None
+        filas.append(
+            {
+                "Indicador": etiqueta,
+                "Corrida A": _fmt(valor_a, clave),
+                "Corrida B": _fmt(valor_b, clave),
+                "Diferencia (B−A)": _fmt(delta, clave, signed=True) if clave != "n_test" else "—",
+            }
+        )
+    st.dataframe(pd.DataFrame(filas), hide_index=True, width="stretch")
+    st.markdown("**Definiciones operativas.** La tabla siguiente precisa el significado de cada indicador.")
+    st.dataframe(
+        pd.DataFrame(DEFINICIONES, columns=["Indicador", "Definición operativa"]),
+        hide_index=True,
+        width="stretch",
+    )
+
+    st.header("1.2 Huella de carbono y coste computacional")
+
+    def _tamano_mb(run: RunReport):
+        return round(run.model_path.stat().st_size / 1_000_000, 1) if run.model_path else None
+
+    filas_coste = [
+        ("Emisiones de entrenamiento (kg CO₂eq)", first.emissions_kg, second.emissions_kg, _fmt),
+        ("Energía de entrenamiento (kWh)", first.energy_kwh, second.energy_kwh, _fmt),
+        ("Duración del entrenamiento (s)", first.training_seconds, second.training_seconds, _fmt),
+        ("Coste energético estimado (COP)", estimate_cost(first.energy_kwh, tarifa), estimate_cost(second.energy_kwh, tarifa), _fmt_cop),
+        ("Épocas ejecutadas", first.epochs, second.epochs, _fmt),
+        ("Tamaño del artefacto (MB)", _tamano_mb(first), _tamano_mb(second), _fmt),
+    ]
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {"Concepto": etiqueta, "Corrida A": formato(valor_a), "Corrida B": formato(valor_b)}
+                for etiqueta, valor_a, valor_b, formato in filas_coste
+            ]
+        ),
+        hide_index=True,
+        width="stretch",
+    )
+    st.markdown(
+        f"**Procedimiento de estimación.** El coste se calcula como $C = E \\times p$, donde $E$ es la energía "
+        f"registrada por CodeCarbon (kWh) y $p = {tarifa:,.0f}$ COP/kWh es una tarifa supuesta, modificable en la "
+        "barra lateral. La estimación cubre el entrenamiento registrado y no incluye infraestructura externa."
+    )
+    desglose = pd.DataFrame({"A": first.energy_breakdown, "B": second.energy_breakdown}).T.rename(
+        columns={"cpu_energy": "CPU (kWh)", "ram_energy": "RAM (kWh)", "gpu_energy": "GPU (kWh)"}
+    )
+    if not desglose.empty:
+        st.markdown("**Distribución de la energía por componente.**")
+        st.dataframe(desglose.fillna("N/D"), width="stretch")
+
+    datos = []
+    for metrica in ("accuracy", "balanced_accuracy", "f1_macro", "f1_weighted"):
+        datos.append({"Indicador": METRIC_LABELS[metrica], "A": first.metrics.get(metrica), "B": second.metrics.get(metrica)})
+    grafico = pd.DataFrame(datos).set_index("Indicador")
+    if grafico.notna().any().any():
+        st.markdown("**Comparación gráfica de indicadores seleccionados.**")
+        st.bar_chart(grafico)
+
+
+def _tab_inferencia(first: RunReport, second: RunReport, umbral: float, top_k: int) -> None:
+    st.markdown(
+        "Se presenta una única imagen RGB, redimensionada a 224 × 224 píxeles y entregada a ambos modelos en el "
+        "intervalo [0, 255]. Cada arquitectura aplica su preprocesamiento interno: EfficientNetB0 normaliza en su "
+        "propia grafo y MobileNetV2 transforma a [−1, 1] mediante una capa registrada. La conversión softmax se "
+        "aplica únicamente a las cabezas que entregan logits."
+    )
+    archivo = st.file_uploader("Seleccione una imagen de hoja", type=["jpg", "jpeg", "png"])
+    if not archivo:
+        st.info("Se requiere una imagen para ejecutar la inferencia comparativa.")
+        return
+
+    image = Image.open(archivo).convert("RGB").resize(
+        IMAGE_SIZE, Image.Resampling.BILINEAR
+    )
+    batch = np.expand_dims(np.asarray(image, dtype=np.float32), 0)
+    resultados: dict[str, tuple[np.ndarray, list[str], float]] = {}
+
+    with st.spinner("Ejecutando inferencia con ambos modelos…"):
+        for clave, run in (("A", first), ("B", second)):
+            if not run.model_path or not Path(run.model_path).is_file():
+                st.info(f"Corrida {clave}: no hay artefacto `model.keras` en `{run.path}`.")
+                continue
+            try:
+                model = _load_model(str(run.model_path))
+                inicio = time.perf_counter()
+                probabilidades = _probabilities(model, batch)
+                latencia = time.perf_counter() - inicio
+            except Exception as exc:  # noqa: BLE001
+                st.info(f"Corrida {clave}: no fue posible cargar el artefacto `{run.model_path}`. Detalle: {exc}")
+                continue
+            resultados[clave] = (probabilidades, _clases_de(run, len(probabilidades)), latencia)
+
+    st.image(image, caption="Imagen de entrada", width="stretch")
+    columnas = st.columns(2)
+    for columna, clave in zip(columnas, ("A", "B")):
+        with columna:
+            st.subheader(f"Corrida {clave} · {first.model if clave == 'A' else second.model}")
+            if clave not in resultados:
+                continue
+            probabilidades, nombres, latencia = resultados[clave]
+            indices = np.argsort(probabilidades)[::-1][:top_k]
+            mejor = int(indices[0])
+            confianza = float(probabilidades[mejor])
+            st.metric("Clase estimada", nombres[mejor])
+            st.metric("Cultivo", _cultivo_de_clase(nombres[mejor]))
+            st.metric("Probabilidad máxima", f"{confianza:.2%}")
+            st.markdown(f"**Latencia medida:** {latencia * 1000:.0f} ms en CPU, sin incluir la carga del modelo.")
+            if confianza < umbral:
+                st.info(
+                    f"La probabilidad máxima ({confianza:.2%}) es inferior al umbral definido ({umbral:.2f}). "
+                    "Se recomienda contraste con un especialista."
+                )
+            st.markdown("**Clases con mayor probabilidad**")
+            for indice in indices:
+                st.markdown(f"- {nombres[int(indice)]}: **{probabilidades[int(indice)]:.2%}**")
+
+    if len(resultados) == 2:
+        mejor_a = int(np.argmax(resultados["A"][0]))
+        mejor_b = int(np.argmax(resultados["B"][0]))
+        nombre_a = resultados["A"][1][mejor_a]
+        nombre_b = resultados["B"][1][mejor_b]
+        if nombre_a == nombre_b:
+            st.info(f"**Acuerdo entre modelos.** Ambas corridas coinciden en la clase de mayor probabilidad: {nombre_a}.")
+        else:
+            st.info(
+                "**Acuerdo entre modelos.** Las corridas difieren en la clase de mayor probabilidad: "
+                f"A → {nombre_a}; B → {nombre_b}."
+            )
+
+
+def _tab_evidencias(first: RunReport, second: RunReport) -> None:
+    st.markdown(
+        "Se relacionan los artefactos generados por cada corrida. Las imágenes y tablas se leen directamente del "
+        "directorio del experimento; no se recalculan en esta interfaz."
+    )
+    for clave, run in (("A", first), ("B", second)):
+        with st.expander(f"Corrida {clave} · {run.label} · `{run.name}`", expanded=True):
+            st.markdown(f"**Ruta del experimento.** `{run.path}`")
+            if run.provenance:
+                st.markdown("**Procedencia.**")
+                st.json(run.provenance)
+            if run.history:
+                st.markdown("**Serie histórica por época.**")
+                st.line_chart(pd.DataFrame(run.history))
+            if run.split_sizes:
+                st.markdown("**Partición declarada.** " + ", ".join(f"{k}={v:,}" for k, v in run.split_sizes.items()))
+            if run.split_test_sha256:
+                st.markdown(f"**Hash SHA-256 del manifiesto de prueba.** `{run.split_test_sha256}`")
+            if run.hardware:
+                st.markdown(f"**Plataforma de ejecución.** {run.hardware}")
+            for etiqueta, ruta in run.artifacts.items():
+                st.markdown(f"**{etiqueta}**")
+                if ruta.suffix == ".png":
+                    st.image(str(ruta), caption=etiqueta, width="stretch")
+                elif ruta.suffix == ".txt":
+                    st.text(ruta.read_text(encoding="utf-8", errors="replace")[:5000])
+                else:
+                    st.dataframe(pd.read_csv(ruta).head(20), hide_index=True, width="stretch")
+
+
+def _tab_marco(first: RunReport, second: RunReport, tarifa: float) -> None:
+    st.header("2.1 Fuentes y trazabilidad")
+    st.markdown(
+        "Las corridas se leen de `experiments/efficientnetb0/colab_results/` —métricas finales del SQLite de "
+        "MLflow— y de `experiments/mobilenetv2/colab_results/` —`metrics_baseline.json`, "
+        "`config_effective_baseline.json`, `history_baseline.json` y artefactos—. En ambos casos la energía y "
+        "las emisiones se toman de `emissions.csv` y el reporte de clasificación aporta las clases y el soporte. "
+        "Las series por época se presentan únicamente como histórico de entrenamiento, nunca como cifras de "
+        f"test. La tarifa empleada en la estimación económica es de {tarifa:,.0f} COP/kWh."
+    )
+    for clave, run in (("A", first), ("B", second)):
+        st.markdown(
+            f"- **Corrida {clave}** ({run.label}): {run.n_test or 'N/D'} imágenes de prueba; "
+            f"{run.epochs or 'N/D'} épocas; procedencia: {run.provenance.get('origen', 'artefactos del repositorio')}."
         )
 
-    st.image(image, caption="Imagen analizada", width="stretch")
-    st.markdown("---")
-    st.caption(
-        "Limitaciones: PlantVillage (condiciones controladas) y PlantDoc (evaluación externa) "
-        "no garantizan representatividad de Cartagena ni la región Caribe. Una puntuación alta "
-        "tampoco garantiza que la predicción sea correcta."
+    st.header("2.2 Criterios de comparabilidad")
+    notas = comparability_notes(first, second)
+    if notas:
+        st.markdown("Se identifican las siguientes diferencias observables entre protocolos:")
+        for nota in notas:
+            st.markdown(f"- {nota}")
+    else:
+        st.markdown("No se identifican diferencias observables en muestra, manifiesto, épocas, plataforma u origen.")
+    st.markdown(
+        "La comparación solo es válida cuando coinciden la partición, el número de muestras evaluadas, el protocolo "
+        "de entrenamiento y la plataforma de medición. En caso contrario, las cifras se presentan como evidencia "
+        "descriptiva y no como conclusión de superioridad de una arquitectura."
     )
+
+    st.header("2.3 Medición ambiental y económica")
+    st.markdown(
+        "CodeCarbon estima la energía a partir de la potencia de CPU, RAM y GPU y la convierte a emisiones mediante "
+        "un factor de intensidad carbonosa regional. El coste se deriva de la energía estimada y de una tarifa "
+        "eléctrica supuesta, con rango de referencia de 870 a 1200 COP/kWh; no constituye una factura ni incluye "
+        "costes de infraestructura, almacenamiento o mantenimiento."
+    )
+
+    st.header("2.4 Referencias")
+    st.markdown(
+        """
+        1. Tan, M., & Le, Q. V. (2019). *EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks*. ICML.
+        2. Sandler, M., Howard, A., Zhu, M., Zhmoginov, A., & Chen, L.-C. (2018). *MobileNetV2: Inverted Residuals and Linear Bottlenecks*. CVPR.
+        3. Lacoste, A., Luccioni, A., Schmidt, V., & Dandres, T. (2019). *Quantifying Carbon Footprint for Training and Evaluation of Deep Learning Models*. arXiv:1907.10597.
+        4. Pedregosa, F., et al. (2011). *Scikit-learn: Machine Learning in Python*. JMLR, 12, 2825–2830.
+        5. Mohanty, S. P., Hughes, D. P., & Salathé, M. (2016). *PlantVillage Dataset*. https://github.com/spMohanty/PlantVillage-Dataset
+        """
+    )
+
+
+def main() -> None:
+    st.set_page_config(page_title="LeaftHealthVision | Evaluación comparativa", layout="wide")
+    st.title("Evaluación comparativa de modelos locales para clasificación de enfermedades foliares")
+    st.markdown(
+        "**Objetivo.** Contrastar el desempeño, la huella de carbono y el coste computacional de dos arquitecturas "
+        "entrenadas sobre PlantVillage, conservando la procedencia de cada corrida y las condiciones de medición."
+    )
+
+    runs = discover_runs(ROOT / "experiments")
+    if not runs:
+        st.info("No se encontraron corridas con `metrics.json` en `experiments/`. Ejecute previamente un entrenamiento.")
+        st.stop()
+
+    etiquetas = [run.label for run in runs]
+    st.sidebar.header("Configuración del análisis")
+    etiqueta_a = st.sidebar.selectbox("Corrida A", etiquetas, index=_default_index(runs, "efficientnetb0", "baseline"))
+    etiqueta_b = st.sidebar.selectbox("Corrida B", etiquetas, index=_default_index(runs, "mobilenetv2"))
+    first = runs[etiquetas.index(etiqueta_a)]
+    second = runs[etiquetas.index(etiqueta_b)]
+    tarifa = st.sidebar.number_input(
+        "Tarifa eléctrica (COP/kWh)", min_value=0.0, max_value=5000.0,
+        value=TARIFA_COP_DEFECTO, step=10.0,
+        help="Rango de referencia: 870–1200 COP/kWh. Valor empleado en la estimación; no representa una factura real.",
+    )
+    umbral = st.sidebar.slider("Umbral de baja confianza", 0.0, 1.0, UMBRAL_DEFECTO, 0.05)
+    top_k = st.sidebar.slider("Número de clases a presentar", 1, 5, 3)
+    st.sidebar.markdown("---")
+    st.sidebar.info(
+        "Las corridas disponibles pueden diferir en partición, plataforma y protocolo. Consulte la sección "
+        "**Condición de comparabilidad** antes de interpretar las diferencias."
+    )
+
+    pestaña_resultados, pestaña_inferencia, pestaña_evidencias, pestaña_marco = st.tabs(
+        ["1. Resultados", "2. Inferencia", "3. Evidencias", "4. Marco metodológico"]
+    )
+    with pestaña_resultados:
+        _tab_resultados(first, second, tarifa)
+    with pestaña_inferencia:
+        _tab_inferencia(first, second, umbral, top_k)
+    with pestaña_evidencias:
+        _tab_evidencias(first, second)
+    with pestaña_marco:
+        _tab_marco(first, second, tarifa)
 
 
 if __name__ == "__main__":

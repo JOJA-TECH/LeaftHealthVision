@@ -6,7 +6,17 @@ WORKDIR /app
 COPY deploy/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY deploy/app.py deploy/check.py deploy/model.tflite ./
+COPY deploy/app.py deploy/check.py ./
+COPY src/leafthealthvision/evaluation/comparison.py ./comparison.py
+COPY deploy/models/ ./models/
+
+# Solo resultados de Colab: métricas, emisiones, artefactos y checkpoints de origen.
+COPY experiments/efficientnetb0/colab_results/mlflow.db ./experiments/efficientnetb0/colab_results/
+COPY experiments/efficientnetb0/colab_results/emissions.csv ./experiments/efficientnetb0/colab_results/
+COPY experiments/efficientnetb0/colab_results/leafthealthvision/artifacts/ ./experiments/efficientnetb0/colab_results/leafthealthvision/artifacts/
+COPY experiments/mobilenetv2/colab_results/emissions.csv ./experiments/mobilenetv2/colab_results/
+COPY experiments/mobilenetv2/colab_results/leafthealthvision/artifacts/ ./experiments/mobilenetv2/colab_results/leafthealthvision/artifacts/
+
 RUN python check.py
 
 # Streamlit necesita HTTP + WebSocket; Vercel inyecta el puerto en $PORT.
