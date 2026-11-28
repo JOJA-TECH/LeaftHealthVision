@@ -1,5 +1,11 @@
 # LeaftHealthVision
 
+> Link del video de demostracion: [Enlace del video](https://tecnoutb.sharepoint.com/:v:/s/JOJA/IQDgEFbX2VWDTapwgS5EA2g7ASEuibILLUl_bRNit1m8KuA?e=f1ljiF&nav=eyJyZWZlcnJhbEluZm8iOnsicmVmZXJyYWxBcHAiOiJTdHJlYW1XZWJBcHAiLCJyZWZlcnJhbFZpZXciOiJTaGFyZURpYWxvZy1MaW5rIiwicmVmZXJyYWxBcHBQbGF0Zm9ybSI6IldlYiIsInJlZmVycmFsTW9kZSI6InZpZXcifX0%3D)
+
+> Link de la demo: [Demo - Vercel](https://leaft-health-vision.vercel.app) 
+
+> Bitacore de IA: [Bitacora](/docs/bitacora_ia.md)
+
 Clasificación de enfermedades de hojas con PlantVillage usando TensorFlow/Keras.
 Pipeline de EfficientNetB0 por manifiestos (CRISP-ML(Q)): **baseline congelado**
 (`efficientnetb0_baseline`) y **fine-tuning** (`efficientnetb0_finetune`) que parte
