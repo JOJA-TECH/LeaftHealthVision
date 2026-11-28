@@ -168,6 +168,37 @@ por inferencia. Los resultados son descriptivos y no sustituyen un diagnóstico 
 - Añadir eficiencia (F1 por kWh / por COP) y curvas de calibración desde validación.
 - Comparar las clases más confundidas y exportar el informe a CSV/PDF.
 
+## Despliegue en Vercel
+
+Vercel no ejecuta Streamlit como función serverless: necesita un proceso HTTP con
+WebSocket. Se usa el **Container Runtime** (beta) con `framework: container` en
+`vercel.json` y el `Dockerfile` de la raíz. La imagen incluye **solo** el Streamlit de
+`deploy/app.py`, sus dependencias y `deploy/model.tflite`; `.dockerignore` excluye el
+resto del repositorio (entrenamiento, notebooks, datasets, MLflow).
+
+El modelo es MobileNetV2 baseline de Colab
+(`experiments/mobilenetv2/colab_results/.../baseline_model.keras`, 94,3% de accuracy en
+test), convertido a TFLite para no arrastrar TensorFlow al despliegue. La conversión
+sustituye el `Lambda` de preprocesamiento por `Rescaling(1/127.5, -1)`; la diferencia
+máxima de probabilidades frente al modelo Keras es `5e-7`.
+
+```bash
+vercel deploy          # o conectar el repo en la UI de Vercel, sin comandos de build
+```
+
+Prueba local de la misma imagen:
+
+```bash
+docker build -t leafthealthvision .
+docker run --rm -p 8080:80 leafthealthvision   # http://localhost:8080
+```
+
+`deploy/check.py` valida forma, rango y suma de probabilidades del modelo durante el
+build. Límites a tener en cuenta: escalado a cero tras 5 min de inactividad (con
+pérdida de la sesión de Streamlit), hasta 4,5 MB por imagen subida y 2 GB de RAM en
+Hobby. Para cambiar el modelo, reemplaza `deploy/model.tflite` manteniendo entrada
+`(1, 224, 224, 3)` float32 y salida de 38 probabilidades en orden alfabético.
+
 ## Pruebas MobileNetV2
 
 ```bash

@@ -1,0 +1,7 @@
+*
+!Dockerfile
+!deploy/
+!deploy/app.py
+!deploy/check.py
+!deploy/model.tflite
+!deploy/requirements.txt
