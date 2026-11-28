@@ -38,6 +38,22 @@ PLANTVILLAGE = {
     "respect_leaf_grouping": True,  # evitar data leakage por hoja física
 }
 
+# Partición canónica compartida por manifiestos (train/val/test).
+# Los archivos CSV viven en data/splits/ y NO se versionan (datos voluminosos).
+# Fuente de verdad: acuerde el equipo (ver discrepancia 43.486/5.398/5.401 vs
+# 43.490/5.398/5.396 entre el README/EDA de EfficientNet y sus CSV versionados).
+MANIFEST_DIR = DATA_DIR / "splits"
+MANIFEST_FILES = {
+    "train": MANIFEST_DIR / "train.csv",
+    "val": MANIFEST_DIR / "val.csv",
+    "test": MANIFEST_DIR / "test.csv",
+}
+# Columnas esperadas en cada manifiesto.
+MANIFEST_COLUMNS = ["archivo", "categoria", "split"]
+
+# Directorio de artefactos de experimentos: experiments/mobilenetv2/<variante>/seed_<n>/
+EXPERIMENTS_DIR = ROOT / "experiments"
+
 PLANTDOC = {
     "source": "https://github.com/pratikkayal/PlantDoc-Dataset",
     "license": "CC-BY-4.0",
@@ -93,6 +109,13 @@ IMAGE_TARGET_SIZE = (224, 224)  # estándar para MobileNetV2 / EfficientNetB0
 IMAGE_COLOR_MODE = "rgb"
 IMAGE_RESCALE = 1.0 / 255.0
 
+# Preprocesamiento MobileNetV2 (documentación oficial):
+# `applications.mobilenet_v2.preprocess_input` transforma entradas [0,255] a
+# [-1,1]. Se aplica UNA sola vez y dentro del modelo (capa Keras), de modo que
+# entrenamiento e inferencia son idénticos y no hay doble aplicación.
+# No combinar con layers.Rescaling(IMAGE_RESCALE).
+MOBILENETV2_PREPROCESS_INPUT = True
+
 # ---------------------------------------------------------------------------
 # Entrenamiento (valores de referencia, lógica aún no implementada)
 # ---------------------------------------------------------------------------
@@ -105,6 +128,15 @@ METRICS = ["accuracy"]
 EARLY_STOPPING_PATIENCE = 5
 REDUCE_LR_PATIENCE = 3
 REDUCE_LR_FACTOR = 0.5
+
+# Variante fine-tuned (configuración separada, opt-in). Por defecto se usa el
+# baseline congelado (base_trainable=False). Activar solo si el diseño del equipo
+# lo requiere y nunca ajustar hiperparámetros mirando el test.
+FINE_TUNE_ENABLED = False
+FINE_TUNE_BASE_TRAINABLE = False
+FINE_TUNE_EPOCHS = 10
+FINE_TUNE_LEARNING_RATE = 1e-5
+FINE_TUNE_FROZEN_LAYERS = None  # None = congelar toda la base
 
 # ---------------------------------------------------------------------------
 # MLflow (seguimiento local de experimentos)
