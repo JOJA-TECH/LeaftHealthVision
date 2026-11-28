@@ -1,0 +1,22 @@
+# Verificación real del pipeline con pasos limitados; manifiestos canónicos intactos.
+output_dir: experiments/efficientnetb0/verificacion/seed_42/baseline
+dataset:
+  source: https://github.com/spMohanty/PlantVillage-Dataset
+  variant: color
+  color_dir: data/plantvillage/raw/color
+  manifest_dir: data/splits
+model:
+  image_size: [224, 224]
+  dropout_rate: 0.20
+  weights: imagenet
+training:
+  seed: 42
+  batch_size: 32
+  epochs: 2
+  learning_rate: 0.001
+  early_stopping_patience: 5
+  steps_per_epoch: 40
+  validation_steps: 10
+mlflow:
+  tracking_uri: ./mlruns
+  experiment_name: leafthealthvision_verificacion

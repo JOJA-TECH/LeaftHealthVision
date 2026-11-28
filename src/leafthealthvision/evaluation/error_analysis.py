@@ -69,16 +69,12 @@ def _review_row(
 
 def _write_review_guide(output_dir: Path) -> None:
     (output_dir / "error_review_guide.md").write_text(
-        "# Revisión humana de errores\n\n"
-        "`misclassifications.csv` contiene todos los errores del test y "
-        "`error_review_queue.csv` una cola priorizada (más confianza primero).\n\n"
-        "Campos automáticos y objetivos: `tipo_error` "
-        "(`misma_especie`, `especies_distintas`, `sano_vs_enfermo`) y "
-        "`banda_confianza` (`alta`, `media`, `baja`). No son una explicación causal.\n\n"
-        "Una persona debe abrir cada imagen, completar `human_hypothesis`, "
-        "`reviewed_by`, `review_notes` y cambiar `review_status` a `revisado`. "
-        "La entrega académica exige al menos 10 errores reales revisados; hasta "
-        "que existan esas filas, el estado es `[POR DEFINIR]`.\n",
+        "# Revisión de errores\n\n"
+        "He guardado en `misclassifications.csv` todos los errores del test y en "
+        "`error_review_queue.csv` la cola ordenada por confianza descendente.\n\n"
+        "Para cada imagen revisada, completo `human_hypothesis`, `reviewed_by` y "
+        "`review_notes`, y cambio `review_status` a `revisado`. Reviso al menos 10 "
+        "errores reales antes de entregar el trabajo.\n",
         encoding="utf-8",
     )
 
