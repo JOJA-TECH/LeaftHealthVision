@@ -1,0 +1,25 @@
+# Verificación real del fine-tuning desde el baseline reducido; misma semilla y partición.
+output_dir: experiments/efficientnetb0/verificacion/seed_42/finetune
+dataset:
+  source: https://github.com/spMohanty/PlantVillage-Dataset
+  variant: color
+  color_dir: data/plantvillage/raw/color
+  manifest_dir: data/splits
+model:
+  image_size: [224, 224]
+  dropout_rate: 0.20
+  weights: null
+fine_tuning:
+  init_from: experiments/efficientnetb0/verificacion/seed_42/baseline/best_model.keras
+  unfreeze_last_n: 20
+  learning_rate: 1.0e-5
+training:
+  seed: 42
+  batch_size: 32
+  epochs: 2
+  early_stopping_patience: 3
+  steps_per_epoch: 40
+  validation_steps: 10
+mlflow:
+  tracking_uri: ./mlruns
+  experiment_name: leafthealthvision_verificacion

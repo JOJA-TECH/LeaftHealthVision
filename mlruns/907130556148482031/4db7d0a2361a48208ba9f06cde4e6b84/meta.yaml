@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/ACER/Documents/Proyectos_ISCO/GitHub/LeaftHealthVision/mlruns/907130556148482031/4db7d0a2361a48208ba9f06cde4e6b84/artifacts
+end_time: 1795825979336
+entry_point_name: ''
+experiment_id: '907130556148482031'
+lifecycle_stage: active
+run_id: 4db7d0a2361a48208ba9f06cde4e6b84
+run_name: efficientnetb0_finetune
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1795825598147
+status: 3
+tags: []
+user_id: ACER

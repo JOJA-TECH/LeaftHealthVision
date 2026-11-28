@@ -8,9 +8,16 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
+    "codecarbon>=3.3.2",
     "datasets==4.0.0",
     "matplotlib==3.10.9",
     "mlflow==3.18.0",
+    "nbconvert>=7.17.2",
+    "nbformat>=5.11.1",
+    "notebook>=7.6.5",
+    "pillow==12.3.0",
+    "pyyaml==6.0.3",
+    "scikit-learn==1.7.2",
     "tensorflow==2.21.0",
 ]
 
