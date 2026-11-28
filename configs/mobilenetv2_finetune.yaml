@@ -1,0 +1,29 @@
+# Fine-tuning de MobileNetV2. Parte del checkpoint del baseline congelado
+# (misma semilla, partición y resolución). Los valores de descongelado y lr
+# siguen la receta probada en notebooks/mobilenet_colab.ipynb.
+# OJO: image_size y dropout_rate deben coincidir con mobilenetv2_baseline.yaml,
+# si no, load_weights falla al cargar el checkpoint.
+dataset:
+  source: https://github.com/spMohanty/PlantVillage-Dataset
+  variant: color
+  color_dir: data/plantvillage/raw/color
+  manifest_dir: data/splits
+model:
+  image_size: [224, 224]
+  dropout_rate: 0.20
+  weights: null  # se cargan del checkpoint del baseline; evita descarga redundada
+# output_dir: null  # si se define, aísla corridas sintéticas de experiments/
+fine_tuning:
+  init_from: experiments/mobilenetv2/baseline/seed_42/best_model.keras
+  unfreeze_last_n: 20
+  learning_rate: 1.0e-5
+training:
+  seed: 42
+  batch_size: 32
+  epochs: 5
+  early_stopping_patience: 3
+  steps_per_epoch: null
+  validation_steps: null
+mlflow:
+  tracking_uri: ./mlruns  # ruta plana; "file://./mlruns" se parsea como UNC \\.\mlruns en Windows
+  experiment_name: leafthealthvision

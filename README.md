@@ -99,3 +99,49 @@ sintéticas. No sustituye una corrida real.
   locales (batch 32, hasta 50 épocas).
 - `notebooks/efficientnetb0_colab.ipynb`: experimento exploratorio previo (split al
   vuelo sin agrupación por hoja; sus métricas no son comparables con el pipeline).
+
+## MobileNetV2 (Ruta F)
+
+El pipeline de MobileNetV2 sigue la misma estructura que EfficientNetB0 para que
+ambas arquitecturas sean comparables (mismos manifiestos, resolución, preprocesamiento
+y métricas).
+
+## Ejecutar MobileNetV2 baseline congelado
+
+```bash
+uv run python -m leafthealthvision.training.mobilenetv2 --config configs/mobilenetv2_baseline.yaml
+```
+
+Entrena la cabeza sobre MobileNetV2 ImageNet congelada con `raw/color`, pesos por
+clase calculados solo en train, semilla 42 y preprocesamiento oficial de MobileNetV2
+(`[0,255]` -> `[-1,1]` como capa interna, aplicado una sola vez). Artefactos en
+`experiments/mobilenetv2/baseline/seed_42/`.
+
+## Ejecutar MobileNetV2 fine-tuning
+
+```bash
+uv run python -m leafthealthvision.training.finetune_mobilenetv2 --config configs/mobilenetv2_finetune.yaml
+```
+
+Requiere haber corrido el baseline: carga
+`experiments/mobilenetv2/baseline/seed_42/best_model.keras`, descongela las últimas
+20 capas (BatchNorm congelada recursivamente) y ajusta con lr 1e-5 sobre la misma
+partición y semilla.
+
+## Prototipo Streamlit
+
+```bash
+uv run streamlit run src/leafthealthvision/app.py
+```
+
+Clasificación preliminar con el modelo guardado, cultivo asociado, probabilidades top-K,
+aviso de baja confianza (umbral desde validación) y advertencia de uso orientativo.
+
+## Pruebas MobileNetV2
+
+```bash
+uv run python tests/test_mobilenetv2_pipeline.py
+```
+
+Cubren integridad de manifiestos, preprocesamiento [-1,1], consistencia entrenamiento
+vs inferencia, forma/rango de probabilidades y carga de modelo guardado.
