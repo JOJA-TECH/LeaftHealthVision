@@ -13,9 +13,9 @@ wheels/
 data/
 
 .config
-mlruns/
-.mlflow/
-mlflow.db
-
 # cache
 .ipynb_checkpoints/
+
+# Artefactos y resultados de experimentos (no versionar datos voluminosos ni locales)
+artifacts/
+results/
