@@ -1,0 +1,23 @@
+# Baseline MOBILENETV2 castrado/rapido (SOLO para prueba de funcionamiento del pipeline).
+# NO usar para resultados finales.
+dataset:
+  source: https://github.com/spMohanty/PlantVillage-Dataset
+  variant: color
+  color_dir: data/plantvillage/raw/color
+  manifest_dir: data/splits
+model:
+  image_size: [224, 224]
+  dropout_rate: 0.20
+  weights: imagenet
+output_dir: experiments/mobilenetv2/baseline/seed_42
+training:
+  seed: 42
+  batch_size: 8
+  epochs: 2
+  learning_rate: 0.001
+  early_stopping_patience: 5
+  steps_per_epoch: 5
+  validation_steps: 3
+mlflow:
+  tracking_uri: ./mlruns
+  experiment_name: leafthealthvision
