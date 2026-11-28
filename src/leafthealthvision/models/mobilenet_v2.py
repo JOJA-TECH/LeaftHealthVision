@@ -57,6 +57,7 @@ def build_mobilenetv2_baseline(
         include_top=False,
         weights=weights,
         input_shape=input_shape,
+        name="mobilenetv2",
     )
     base_model.trainable = False
 
