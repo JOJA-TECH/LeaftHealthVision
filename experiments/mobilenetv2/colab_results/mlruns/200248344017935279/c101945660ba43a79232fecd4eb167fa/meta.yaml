@@ -1,0 +1,14 @@
+artifact_uri: /content/mlruns/200248344017935279/c101945660ba43a79232fecd4eb167fa/artifacts
+end_time: null
+entry_point_name: ''
+experiment_id: '200248344017935279'
+lifecycle_stage: active
+run_id: c101945660ba43a79232fecd4eb167fa
+run_name: inquisitive-crab-829
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1795834400180
+status: 1
+tags: []
+user_id: root

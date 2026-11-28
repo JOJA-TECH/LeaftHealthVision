@@ -1,0 +1,14 @@
+artifact_uri: /content/mlruns/200248344017935279/801ad56a1df94da6879c8a43c1e74f8e/artifacts
+end_time: 1795834367964
+entry_point_name: ''
+experiment_id: '200248344017935279'
+lifecycle_stage: active
+run_id: 801ad56a1df94da6879c8a43c1e74f8e
+run_name: mobilenetv2_baseline_seed42
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1795833937518
+status: 3
+tags: []
+user_id: root

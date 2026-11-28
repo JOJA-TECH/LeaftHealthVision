@@ -1,0 +1,11 @@
+{
+  "variant": "baseline",
+  "seed": 42,
+  "model": "mobilenetv2",
+  "base_trainable": false,
+  "epochs": 10,
+  "batch_size": 640,
+  "preprocess": "mobilenet_v2.preprocess_input ([0,255]->[-1,1])",
+  "umbral_confianza_validacion": 0.06237020194530487,
+  "created_at": "2026-11-28T02:53:19.294222+00:00"
+}

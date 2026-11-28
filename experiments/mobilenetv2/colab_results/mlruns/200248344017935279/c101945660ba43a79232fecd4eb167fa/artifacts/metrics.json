@@ -1,0 +1,13 @@
+{
+  "test_accuracy": 0.9433094054849991,
+  "test_balanced_accuracy": 0.9418845161270767,
+  "test_macro_f1": 0.9336965819678212,
+  "test_weighted_f1": 0.9440310521754028,
+  "test_macro_precision": 0.9285513640980363,
+  "test_macro_recall": 0.9418845161270767,
+  "test_weighted_precision": 0.9465805208643076,
+  "test_weighted_recall": 0.9433094054849991,
+  "test_n_samples": 5433,
+  "carbon_emissions_kg": 0.006081961790656263,
+  "umbral_confianza_validacion": 0.06237020194530487
+}

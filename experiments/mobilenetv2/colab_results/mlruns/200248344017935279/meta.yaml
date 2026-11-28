@@ -1,0 +1,9 @@
+artifact_location: /content/mlruns/200248344017935279
+creation_time: 1795833937435
+effective_trace_archival_retention: null
+experiment_id: '200248344017935279'
+last_update_time: 1795833937435
+lifecycle_stage: active
+name: leafthealthvision
+trace_location: null
+workspace: default
