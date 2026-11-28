@@ -23,11 +23,15 @@ La procedencia y la decisión están en `docs/particion.md`. Los hashes están e
 
 ## Estado actual
 
-El pipeline está implementado y validado con una corrida sintética. Las corridas reales
-baseline/fine-tuning sobre PlantVillage **no se han ejecutado en este equipo** (CPU, sin
-GPU utilizable por TensorFlow): `experiments/efficientnetb0/` está vacío. Los valores
-del notebook 02 son de una ejecución Colab y no se copian como resultados locales.
-Los pendientes y comandos están en `docs/experimentos.md`.
+Hay una verificación local real de EfficientNetB0 en
+`experiments/efficientnetb0/verificacion/seed_42/` (baseline y fine-tuning): 2 épocas con
+pasos limitados, evaluadas sobre las 5 396 imágenes del test canónico. La corrida de
+MobileNetV2 en `experiments/local/mobilenetv2/frozen/seed_42/` se importó de
+`origin/feature/MobileNetV2` para la demo: usó otros manifiestos, hardware distinto y sus
+métricas se calculan sobre 160 imágenes. Ese origen está documentado en `provenance.json`
+y la app lo advierte: **no es una comparación controlada**. Los valores del notebook 02
+son de Colab y tampoco se copian como resultados locales. Los pendientes están en
+`docs/experimentos.md`.
 
 ## Ejecutar el baseline congelado
 
@@ -128,14 +132,41 @@ Requiere haber corrido el baseline: carga
 20 capas (BatchNorm congelada recursivamente) y ajusta con lr 1e-5 sobre la misma
 partición y semilla.
 
-## Prototipo Streamlit
+## Interfaz de evaluación comparativa
 
 ```bash
 uv run streamlit run src/leafthealthvision/app.py
 ```
 
-Clasificación preliminar con el modelo guardado, cultivo asociado, probabilidades top-K,
-aviso de baja confianza (umbral desde validación) y advertencia de uso orientativo.
+La paleta de la interfaz se define en `.streamlit/config.toml` (tonos azules). La app
+lee dos fuentes reales: `experiments/efficientnetb0/colab_results/` (métricas finales de
+MLflow, baseline y finetune) y `experiments/mobilenetv2/colab_results/`
+(`metrics_baseline.json`, configuración efectiva, historial y artefactos). Halla tres
+corridas: dos de EfficientNetB0 y una de MobileNetV2. Por defecto selecciona
+EfficientNetB0 baseline como A y MobileNetV2 baseline como B. Cuatro secciones:
+
+- **1. Resultados**: exactitud, exactitud equilibrada, precisión/recuperación/F1 macro y
+  ponderado, número de muestras, CO₂eq, energía total y desglose CPU/RAM/GPU, duración,
+  épocas, tamaño del artefacto y coste energético en COP (energía × tarifa editable en
+  COP/kWh). Incluye definiciones operativas y señala diferencias de protocolo.
+- **2. Inferencia**: una misma imagen para ambos modelos, clases con mayor probabilidad,
+  acuerdo en la clase principal y latencia medida. MobileNetV2 devuelve logits y
+  EfficientNetB0 probabilidades; se aplica softmax solo cuando hace falta.
+- **3. Evidencias**: matriz de confusión, series históricas por época, curvas, reportes,
+  cola de errores, hashes de manifiestos y procedencia de cada corrida.
+- **4. Marco metodológico**: fuentes, criterios de comparabilidad, procedimiento de
+  medición ambiental y referencias bibliográficas.
+
+La tarifa eléctrica es editable en COP/kWh, con rango de referencia de 870 a 1200 y valor
+inicial de 1035; no constituye una factura real. La latencia en vivo no incluye energía
+por inferencia. Los resultados son descriptivos y no sustituyen un diagnóstico agrícola.
+
+### Posibles ampliaciones
+
+- Ejecutar MobileNetV2 con los manifiestos canónicos para que la comparación sea controlada.
+- Medir energía y emisiones por inferencia (CodeCarbon) y mostrar coste por imagen en COP.
+- Añadir eficiencia (F1 por kWh / por COP) y curvas de calibración desde validación.
+- Comparar las clases más confundidas y exportar el informe a CSV/PDF.
 
 ## Pruebas MobileNetV2
 
