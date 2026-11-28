@@ -23,6 +23,7 @@ from leafthealthvision.config.settings import (
     PLANTVILLAGE_CLASSES,
     ROOT,
 )
+from leafthealthvision.training.mobilenet import MobileNetV2Preprocess
 
 COST_LOG = ROOT / "results" / "inference_cost.csv"
 COST_FIELDS = [
@@ -60,7 +61,10 @@ def _log_cost(image_path, model, class_name, confidence, latency_s, energy_kwh, 
 
 def _load_keras(path):
     try:
-        return tf.keras.models.load_model(path, compile=False)
+        return tf.keras.models.load_model(
+            path, compile=False,
+            custom_objects={"MobileNetV2Preprocess": MobileNetV2Preprocess},
+        )
     except TypeError:
         # Modelos de versiones anteriores de Keras incluyen quantization_config, que la actual rechaza.
         with zipfile.ZipFile(path) as archive:
@@ -77,7 +81,10 @@ def _load_keras(path):
 
         drop_quantization(config)
         config.pop("compile_config", None)
-        model = tf.keras.models.model_from_json(json.dumps(config))
+        model = tf.keras.models.model_from_json(
+            json.dumps(config),
+            custom_objects={"MobileNetV2Preprocess": MobileNetV2Preprocess},
+        )
         model.load_weights(path)
         return model
 
@@ -193,7 +200,7 @@ def predict(image_path, model, class_names=None):
 def show_prediction(image_path, class_name, confidence, heatmap):
     """Muestra la imagen original y la zona detectada superpuesta."""
     image = tf.keras.utils.load_img(image_path)
-    fig, (ax_original, ax_heatmap) = plt.subplots(1, 2, figsize=(10, 5))
+    _fig, (ax_original, ax_heatmap) = plt.subplots(1, 2, figsize=(10, 5))
     ax_original.imshow(image)
     ax_original.set_title("Original")
     ax_heatmap.imshow(image)
