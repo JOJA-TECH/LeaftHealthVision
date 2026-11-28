@@ -1,0 +1,25 @@
+# Baseline congelado MobileNetV2. La decisión de lr/épocas procede del protocolo
+# compartido; el EDA respalda resolución, RGB, manifiestos y pesos por clase.
+dataset:
+  source: https://github.com/spMohanty/PlantVillage-Dataset
+  variant: color
+  color_dir: data/plantvillage/raw/color
+  manifest_dir: data/splits
+model:
+  image_size: [224, 224]
+  dropout_rate: 0.20
+  weights: imagenet  # null solo para pruebas sintéticas sin descarga
+# output_dir: null  # si se define, aísla corridas sintéticas de experiments/
+training:
+  seed: 42
+  batch_size: 32
+  epochs: 50
+  learning_rate: 0.001
+  early_stopping_patience: 5
+  # Limitadores opcionales de pasos por época; null = usar todo el manifiesto.
+  # Útiles en hardware limitado o para pruebas rápidas del pipeline.
+  steps_per_epoch: null
+  validation_steps: null
+mlflow:
+  tracking_uri: ./mlruns  # ruta plana; "file://./mlruns" se parsea como UNC \\.\mlruns en Windows
+  experiment_name: leafthealthvision
